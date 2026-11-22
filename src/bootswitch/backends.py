@@ -5,9 +5,12 @@ import platform
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from bootswitch.models import BootState
 from bootswitch.parser import parse_bcdedit_firmware, parse_efibootmgr
+
+_BOOTNEXT_EFIVAR = Path("/sys/firmware/efi/efivars/BootNext-8be4df61-93ca-11d2-aa0d-00e098032b8c")
 
 
 class BootBackendError(RuntimeError):
@@ -51,7 +54,7 @@ def _run_command(cmd: list[str]) -> str:
 
 
 class LinuxBackend(BootBackend):
-    """UEFI backend for Linux using `efibootmgr` and `systemctl`."""
+    """UEFI backend for Linux using `efibootmgr`, `efivarfs`, and `systemctl`."""
 
     def _elevate(self, cmd: list[str], *, gui_auth: bool = False) -> list[str]:
         if hasattr(os, "geteuid") and os.geteuid() == 0:
@@ -74,9 +77,22 @@ class LinuxBackend(BootBackend):
 
     def clear_next_boot(self, *, dry_run: bool = False, gui_auth: bool = False) -> list[str]:
         cmd = self._elevate(["efibootmgr", "--delete-bootnext"], gui_auth=gui_auth)
-        if not dry_run:
+        if dry_run:
+            return cmd
+
+        try:
             _run_command(cmd)
-        return cmd
+            return cmd
+        except BootBackendError:
+            # Fallback for efibootmgr versions affected by the Boot0001 upstream bug
+            if not _BOOTNEXT_EFIVAR.exists():
+                return cmd
+            fallback_cmd = self._elevate(
+                ["sh", "-c", 'chattr -i "$1" && rm -f "$1"', "_", str(_BOOTNEXT_EFIVAR)],
+                gui_auth=gui_auth,
+            )
+            _run_command(fallback_cmd)
+            return fallback_cmd
 
     def reboot(self, *, dry_run: bool = False) -> list[str]:
         cmd = ["systemctl", "reboot"]
