@@ -7,6 +7,7 @@ from typing import Sequence
 from bootswitch import __version__
 from bootswitch.backends import BootBackend, BootBackendError, get_backend
 from bootswitch.parser import find_target_entry
+from bootswitch.shortcuts import install_shortcut
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,6 +62,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--gui-auth",
         action="store_true",
         help="Use pkexec for graphical authentication on Linux.",
+    )
+
+    shortcut_parser = subparsers.add_parser(
+        "shortcut",
+        help="Create a one-click desktop launcher for a target OS.",
+    )
+    shortcut_parser.add_argument(
+        "target",
+        help="Target OS label or UEFI boot ID (e.g., windows, fedora).",
     )
 
     return parser
@@ -126,6 +136,14 @@ def cmd_clear(backend: BootBackend, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_shortcut(backend: BootBackend, args: argparse.Namespace) -> int:
+    state = backend.get_state()
+    entry = find_target_entry(state, args.target)
+    created_path = install_shortcut(entry, args.target)
+    print(f"Created shortcut for '{entry.label}' at: {created_path}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -138,7 +156,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_to(backend, args)
         if args.command == "clear":
             return cmd_clear(backend, args)
-    except (BootBackendError, LookupError, ValueError) as exc:
+        if args.command == "shortcut":
+            return cmd_shortcut(backend, args)
+    except (BootBackendError, LookupError, ValueError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
