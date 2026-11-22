@@ -19,7 +19,7 @@ Switching between Fedora and Windows on a dual-boot machine normally requires re
 ## Installation
 
 ```bash
-git clone [https://github.com/gurbanmradov/bootswitch.git](https://github.com/gurbanmradov/bootswitch.git)
+git clone https://github.com/gurbanmradov/bootswitch.git
 cd bootswitch
 pip install .
 ```
