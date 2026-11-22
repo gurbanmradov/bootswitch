@@ -78,3 +78,19 @@ class TestParsers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAutoDetect(unittest.TestCase):
+    def test_auto_detect_from_linux_finds_windows(self):
+        from bootswitch.parser import find_other_os_entry
+
+        state = parse_efibootmgr(SAMPLE_EFIBOOTMGR)
+        target = find_other_os_entry(state, "Linux")
+        self.assertEqual(target.boot_id, "0004")
+
+    def test_auto_detect_from_windows_finds_linux(self):
+        from bootswitch.parser import find_other_os_entry
+
+        state = parse_bcdedit_firmware(SAMPLE_BCDEDIT)
+        target = find_other_os_entry(state, "Windows")
+        self.assertEqual(target.label, "Fedora")

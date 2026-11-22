@@ -8,6 +8,18 @@ _EFI_ENTRY_RE = re.compile(
     r"^Boot([0-9A-Fa-f]{4})(\*?)\s+([^\t\r\n]+)(?:\t(.*))?$"
 )
 
+_GENERIC_KEYWORDS = (
+    "efi usb",
+    "efi dvd",
+    "efi cdrom",
+    "efi network",
+    "usb device",
+    "dvd/cdrom",
+    "network",
+    "pxe",
+    "uefi shell",
+)
+
 
 def parse_efibootmgr(output: str) -> BootState:
     """Parse stdout from Linux `efibootmgr` into a structured BootState."""
@@ -70,6 +82,11 @@ def parse_bcdedit_firmware(output: str) -> BootState:
     return BootState(entries=entries)
 
 
+def _is_generic_entry(entry: BootEntry) -> bool:
+    label = entry.label.lower()
+    return any(keyword in label for keyword in _GENERIC_KEYWORDS)
+
+
 def find_target_entry(state: BootState, query: str) -> BootEntry:
     """
     Find the best matching UEFI entry for a user query (e.g., 'windows', 'fedora', or '0004').
@@ -101,3 +118,47 @@ def find_target_entry(state: BootState, query: str) -> BootEntry:
 
     matches.sort(key=sort_key)
     return matches[0]
+
+
+def find_other_os_entry(state: BootState, current_system: str) -> BootEntry:
+    """Automatically detect the secondary OS entry for one-command shortcut setup."""
+    system = current_system.strip().lower()
+    order_rank = {boot_id.upper(): idx for idx, boot_id in enumerate(state.order)}
+
+    def rank_key(entry: BootEntry) -> tuple[int, int]:
+        inactive_penalty = 0 if entry.active else 1
+        rank = order_rank.get(entry.boot_id.upper(), len(order_rank) + 1)
+        return (inactive_penalty, rank)
+
+    if system == "linux":
+        windows_matches = [
+            e for e in state.entries if "windows" in e.label.lower() and not _is_generic_entry(e)
+        ]
+        if windows_matches:
+            windows_matches.sort(key=rank_key)
+            return windows_matches[0]
+
+        candidates = [
+            e
+            for e in state.entries
+            if e.active
+            and e.boot_id != state.current
+            and not _is_generic_entry(e)
+        ]
+    elif system == "windows":
+        candidates = [
+            e
+            for e in state.entries
+            if e.active
+            and e.boot_id.lower() not in {"{bootmgr}", "{fwbootmgr}"}
+            and "windows" not in e.label.lower()
+            and not _is_generic_entry(e)
+        ]
+    else:
+        raise ValueError(f"Unsupported OS for auto-detection: {current_system}")
+
+    if not candidates:
+        raise LookupError("Could not automatically detect a secondary operating system.")
+
+    candidates.sort(key=rank_key)
+    return candidates[0]

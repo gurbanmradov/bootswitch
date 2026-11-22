@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import platform
 import sys
 from typing import Sequence
 
 from bootswitch import __version__
 from bootswitch.backends import BootBackend, BootBackendError, get_backend
-from bootswitch.parser import find_target_entry
+from bootswitch.parser import find_other_os_entry, find_target_entry
 from bootswitch.shortcuts import install_shortcut
 
 
@@ -66,11 +67,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     shortcut_parser = subparsers.add_parser(
         "shortcut",
-        help="Create a one-click desktop launcher for a target OS.",
+        help="Create a one-click desktop launcher for a specific target OS.",
     )
     shortcut_parser.add_argument(
         "target",
-        help="Target OS label or UEFI boot ID (e.g., windows, fedora).",
+        help="Target OS label or UEFI boot ID (e.g., windows, ubuntu, fedora).",
+    )
+
+    subparsers.add_parser(
+        "setup",
+        help="Auto-detect the other OS and create a one-click desktop shortcut.",
     )
 
     return parser
@@ -139,8 +145,17 @@ def cmd_clear(backend: BootBackend, args: argparse.Namespace) -> int:
 def cmd_shortcut(backend: BootBackend, args: argparse.Namespace) -> int:
     state = backend.get_state()
     entry = find_target_entry(state, args.target)
-    created_path = install_shortcut(entry, args.target)
+    created_path = install_shortcut(entry, entry.boot_id)
     print(f"Created shortcut for '{entry.label}' at: {created_path}")
+    return 0
+
+
+def cmd_setup(backend: BootBackend) -> int:
+    state = backend.get_state()
+    entry = find_other_os_entry(state, platform.system())
+    created_path = install_shortcut(entry, entry.boot_id)
+    print(f"Auto-detected secondary OS: {entry.label} [ID: {entry.boot_id}]")
+    print(f"Created one-click shortcut at: {created_path}")
     return 0
 
 
@@ -158,6 +173,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return cmd_clear(backend, args)
         if args.command == "shortcut":
             return cmd_shortcut(backend, args)
+        if args.command == "setup":
+            return cmd_setup(backend)
     except (BootBackendError, LookupError, ValueError, RuntimeError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
